@@ -9,8 +9,8 @@ from github import Github
 
 
 # 20 for test 12 real get up
-GET_UP_ISSUE_NUMBER = 12
-GET_UP_MESSAGE_TEMPLATE = "今天的起床时间是--{get_up_time}.\r\n\r\n 起床啦，喝杯咖啡，背个单词，去跑步。\r\n\r\n 今天的一句诗:\r\n {sentence} \r\n"
+GET_UP_ISSUE_NUMBER = 1
+GET_UP_MESSAGE_TEMPLATE = "开始工作了\r\n\r\n 今天的一句诗:\r\n **{sentence}** \r\n"
 SENTENCE_API = "https://v1.jinrishici.com/all"
 DEFAULT_SENTENCE = "赏花归去马如飞\r\n去马如飞酒力微\r\n酒力微醒时已暮\r\n醒时已暮赏花归\r\n"
 TIMEZONE = "Asia/Shanghai"
@@ -66,8 +66,9 @@ def make_pic_and_save(sentence):
         with open(os.path.join(new_path, f"{index}.jpeg"), "wb") as output_file:
             for chunk in response.iter_content(chunk_size=8192):
                 output_file.write(chunk)
-    image_url_for_issue = f"https://github.com/yihong0618/2023/blob/main/OUT_DIR/{date_str}/{index}.jpeg?raw=true"
-    return image_url, image_url_for_issue
+    image_url_for_issue = f"https://github.com/dingtwo/2023/blob/main/OUT_DIR/{date_str}/{index}.jpeg?raw=true"
+    feishu_image_key = img_upload_feishu(image_path=os.path.join(new_path, f"{index}.jpeg"))
+    return image_url, image_url_for_issue, feishu_image_key
 
 
 def make_get_up_message():
@@ -79,29 +80,39 @@ def make_get_up_message():
     get_up_time = now.to_datetime_string()
     link = ""
     try:
-        link, link_for_issue = make_pic_and_save(sentence)
+        link, link_for_issue, feishu_image_key = make_pic_and_save(sentence)
     except Exception as e:
         print(str(e))
         # give it a second chance
         try:
             sentence = get_one_sentence()
             print(f"Second: {sentence}")
-            link, link_for_issue = make_pic_and_save(sentence)
+            link, link_for_issue, feishu_image_key = make_pic_and_save(sentence)
         except Exception as e:
             print(str(e))
     body = GET_UP_MESSAGE_TEMPLATE.format(
         get_up_time=get_up_time, sentence=sentence, link=link
     )
-    print(body, link, link_for_issue)
-    return body, is_get_up_early, link, link_for_issue
+    print(body, link, link_for_issue, feishu_image_key)
+    return body, is_get_up_early, link, link_for_issue, feishu_image_key
+
+def img_upload_feishu(image_path):
+    url = os.getenv("FEISHU_UPLOAD_IMG_URL"),
+    files = {
+        'image_type': (None, 'message'),
+        'image': open(image_path, 'rb')
+    }
+
+    response = requests.post(url, files=files)
+    print(response.text)
+    return response.json()['data']
 
 
 def main(
     github_token,
     repo_name,
     weather_message,
-    tele_token,
-    tele_chat_id,
+    feishu_token,
 ):
     u = login(github_token)
     repo = u.get_repo(repo_name)
@@ -109,8 +120,8 @@ def main(
     is_today = get_today_get_up_status(issue)
     if is_today:
         print("Today I have recorded the wake up time")
-        return
-    early_message, is_get_up_early, link, link_for_issue = make_get_up_message()
+        # return
+    early_message, is_get_up_early, link, link_for_issue, feishu_image_key = make_get_up_message()
     body = early_message
     if weather_message:
         weather_message = f"现在的天气是{weather_message}\n"
@@ -119,17 +130,42 @@ def main(
         comment = body + f"![image]({link_for_issue})"
         issue.create_comment(comment)
         # send to telegram
-        if tele_token and tele_chat_id:
-            requests.post(
-                url="https://api.telegram.org/bot{0}/{1}".format(
-                    tele_token, "sendPhoto"
-                ),
-                data={
-                    "chat_id": tele_chat_id,
-                    "photo": link or "https://pp.qianp.com/zidian/kai/27/65e9.png",
-                    "caption": body,
-                },
+        if feishu_token:
+            card_body = {"msg_type": "interactive",
+                    "card":{
+
+                    "config": {
+                        "wide_screen_mode": True
+                    },
+                    "elements": [
+                        {
+                        "tag": "markdown",
+                        "content": body
+                        },
+                        {
+                        "alt": {
+                            "content": "AI生成的",
+                            "tag": "plain_text"
+                        },
+                        "img_key": feishu_image_key,
+                        "tag": "img"
+                        }
+
+                    ],
+                    "header": {
+                        "template": "turquoise",
+                        "title": {
+                        "content": "每日一图",
+                        "tag": "plain_text"
+                        }
+                    }
+                    }}
+            feishu_res = requests.post(
+                url=feishu_token,
+                json=card_body,
             )
+            print(card_body)
+            print(feishu_res.text)
     else:
         print("You wake up late")
 
@@ -142,16 +178,12 @@ if __name__ == "__main__":
         "--weather_message", help="weather_message", nargs="?", default="", const=""
     )
     parser.add_argument(
-        "--tele_token", help="tele_token", nargs="?", default="", const=""
-    )
-    parser.add_argument(
-        "--tele_chat_id", help="tele_chat_id", nargs="?", default="", const=""
+        "--feishu_token", help="feishu_token", nargs="?", default="", const=""
     )
     options = parser.parse_args()
     main(
         options.github_token,
         options.repo_name,
         options.weather_message,
-        options.tele_token,
-        options.tele_chat_id,
+        options.feishu_token
     )
