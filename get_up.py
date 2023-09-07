@@ -74,7 +74,8 @@ def make_get_up_message():
     sentence = get_one_sentence()
     now = pendulum.now(TIMEZONE)
     # 3 - 7 means early for me
-    is_get_up_early = 3 <= now.hour <= 7
+    # is_get_up_early = 3 <= now.hour <= 7
+    is_get_up_early = True
     get_up_time = now.to_datetime_string()
     link = ""
     try:
